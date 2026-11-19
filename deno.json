@@ -1,0 +1,12 @@
+{
+  "lint": {
+    "rules": {
+      "exclude": [
+        "no-var",
+        "no-window",
+        "no-inner-declarations",
+        "no-unused-vars"
+      ]
+    }
+  }
+}
