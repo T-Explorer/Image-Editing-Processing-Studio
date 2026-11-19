@@ -1,0 +1,2 @@
+-keep class com.example.aiphotostudio.** { *; }
+-keepattributes *JavascriptInterface*
