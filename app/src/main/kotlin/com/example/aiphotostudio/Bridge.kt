@@ -224,6 +224,30 @@ class Bridge(
         }
     }
 
+    @JavascriptInterface
+    fun setTheme(mode: String) {
+        activity.runOnUiThread { activity.applyThemeMode(mode) }
+    }
+
+    @JavascriptInterface
+    fun getSystemTheme(): String = activity.systemTheme()
+
+    @JavascriptInterface
+    fun enhancePrompt(prompt: String): String {
+        return try {
+            val result: String = AgnesClient(cfg).enhancePrompt(prompt)
+            val obj = JSONObject()
+            obj.put("ok", true)
+            obj.put("result", result)
+            obj.toString()
+        } catch (e: Exception) {
+            val obj = JSONObject()
+            obj.put("ok", false)
+            obj.put("error", e.message ?: "未知错误")
+            obj.toString()
+        }
+    }
+
     fun onImagePicked(uri: Uri) {
         try {
             val pair = decodeUri(uri)

@@ -220,6 +220,38 @@ class AgnesClient(private val cfg: Config) {
         }
     }
 
+    /** 用文本模型优化提示词（实用辅助功能）。 */
+    fun enhancePrompt(prompt: String): String {
+        val p = prompt.trim()
+        if (p.isEmpty()) throw Exception("请先填写画面描述。")
+        val instruction = "你是专业的 AI 绘画提示词优化师。请把下面的中文描述优化成一段更具体、" +
+            "更有画面感、适合图像生成模型的提示词，包含主体、场景、风格、光线、构图与质量要求，" +
+            "用中文输出，不要解释，只输出提示词本身。\n\n原始描述：" + p
+        val payload = JSONObject()
+        payload.put("model", "agnes-3.0-flash")
+        val messages = org.json.JSONArray()
+        val m = JSONObject()
+        m.put("role", "user")
+        m.put("content", instruction)
+        messages.put(m)
+        payload.put("messages", messages)
+        payload.put("max_tokens", 300)
+        val raw: String = request("/chat/completions", payload, "POST", true)
+        val obj = JSONObject(raw)
+        val choices = obj.optJSONArray("choices")
+        if (choices != null && choices.length() > 0) {
+            val c = choices.optJSONObject(0)
+            if (c != null) {
+                val msg = c.optJSONObject("message")
+                if (msg != null) {
+                    val content: String = msg.optString("content", "")
+                    if (content.trim().isNotEmpty()) return content.trim()
+                }
+            }
+        }
+        throw Exception("优化失败，未返回有效内容。")
+    }
+
     private fun explain(code: Int, body: String): String {
         var msg = body
         try {

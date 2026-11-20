@@ -2,72 +2,145 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="theme-color" content="#6750a4">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#6750A4">
 <title>AI 照相馆</title>
 <style>
-  :root{--bg:#f7f7fb;--card:#fff;--ink:#1f1f28;--muted:#6b6b7b;--line:#e3e3ec;--brand:#6750a4;--brand2:#3f2b6e;--ok:#1b7f4b;--err:#b3261e}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:15px;padding-bottom:30px}
-  header{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;padding:16px 14px 12px;position:sticky;top:0;z-index:9}
-  header h1{margin:0;font-size:19px;display:flex;align-items:center;justify-content:space-between}
-  header p{margin:5px 0 0;font-size:11px;opacity:.85}
-  .iconbtn{background:#ffffff2b;border:0;color:#fff;border-radius:9px;padding:7px 11px;font-size:13px}
-  .tabs{display:flex;gap:7px;overflow-x:auto;padding:11px 10px 4px;position:sticky;top:66px;z-index:8;background:var(--bg);scrollbar-width:none}
-  .tabs::-webkit-scrollbar{display:none}
-  .tab{white-space:nowrap;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:999px;padding:8px 14px;font-size:13px}
-  .tab.active{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
-  main{padding:6px 10px 20px}
-  .panel{display:none}.panel.active{display:block}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px;margin-top:9px}
-  .card h2{font-size:15px;margin:0 0 10px;color:var(--brand2)}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px}
-  .field{display:flex;flex-direction:column;gap:4px;margin-bottom:9px}
-  .field label{font-size:12px;color:var(--muted)}
-  .field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px;font-size:14px;background:#fff;color:var(--ink)}
-  .field textarea{min-height:62px;resize:vertical}
-  .field .hint{font-size:10px;color:var(--muted)}
-  .check{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:13px}
-  .check input{width:19px;height:19px;accent-color:var(--brand)}
-  .wide{grid-column:1/-1}
-  .btn{border:0;border-radius:11px;padding:12px 14px;font-size:15px;font-weight:600;width:100%;background:var(--brand);color:#fff}
-  .btn.secondary{background:#ece8f7;color:var(--brand2)}
-  .btn.ghost{background:#fff;color:var(--brand2);border:1px solid var(--line)}
-  .btn.small{padding:8px 10px;font-size:12px;width:auto}
-  .row{display:flex;gap:8px;margin-top:9px}.row .btn{flex:1}
-  .picked{margin-top:7px;max-width:170px;border-radius:9px;display:none}
-  #result{margin-top:12px}
-  .msg{padding:11px;border-radius:10px;font-size:13px;white-space:pre-wrap;word-break:break-all}
-  .msg.ok{background:#e8f5ee;color:var(--ok)}.msg.err{background:#fdecea;color:var(--err)}
-  .imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:9px;margin-top:9px}
-  .imgs .item{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#fff}
-  .imgs img{width:100%;display:block;aspect-ratio:3/4;object-fit:contain;background:#f0f0f5}
-  .imgs .cap{padding:6px;text-align:center;font-size:11px;color:var(--muted)}
-  details{margin-top:9px;font-size:11px;color:var(--muted)}
-  summary{cursor:pointer}
-  pre{white-space:pre-wrap;word-break:break-all;background:#f4f4f8;padding:9px;border-radius:9px;max-height:240px;overflow:auto}
-  .foot{text-align:center;color:var(--muted);font-size:11px;padding:16px 8px}
-  #settingsPanel{position:fixed;inset:0;background:#0008;z-index:20;overflow:auto;display:none}
-  #settingsPanel .card{margin:36px 10px;max-width:560px;margin-left:auto;margin-right:auto}
+:root{
+  --bg:#F7F7FB; --card:#FFFFFF; --ink:#1F1B2E; --muted:#6E6A80; --line:#E7E3F0;
+  --brand:#6750A4; --brand2:#3F2B6E; --brand-soft:#EDE7F8; --ok:#1B7F4B; --err:#B3261E;
+  --shadow:0 2px 10px rgba(40,20,80,.07); --radius:18px;
+}
+html[data-theme="dark"]{
+  --bg:#121218; --card:#1E1E27; --ink:#ECE9F5; --muted:#A9A4BC; --line:#33313F;
+  --brand:#B39DDB; --brand2:#D0BCFF; --brand-soft:#2E2640; --ok:#66BB8A; --err:#EF9A9A;
+  --shadow:0 2px 12px rgba(0,0,0,.35); --radius:18px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:15px;padding-bottom:calc(78px + env(safe-area-inset-bottom))}
+button,input,select,textarea{font-family:inherit}
+
+/* 顶部应用栏 */
+.appbar{position:sticky;top:0;z-index:30;padding:calc(env(safe-area-inset-top) + 12px) 16px 12px;
+  background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;
+  box-shadow:0 2px 12px rgba(0,0,0,.18)}
+.appbar .row{display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700}
+.brand .logo{width:34px;height:34px;border-radius:9px;background:#fff2;display:flex;align-items:center;justify-content:center;font-size:20px}
+.icon-btn{width:42px;height:42px;border:0;border-radius:50%;background:#ffffff26;color:#fff;
+  font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.icon-btn:active{background:#ffffff45}
+.appbar .sub{margin-top:6px;font-size:11px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+main{padding:14px 14px 10px;max-width:720px;margin:0 auto}
+.panel{display:none}.panel.active{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px;margin-top:12px;box-shadow:var(--shadow)}
+.card h2{font-size:16px;margin:0 0 12px;color:var(--brand);display:flex;align-items:center;gap:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.field label{font-size:12px;color:var(--muted);font-weight:600}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:12px;
+  padding:11px;font-size:15px;background:var(--bg);color:var(--ink);outline:none}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--brand)}
+.field textarea{min-height:72px;resize:vertical}
+.field .hint{font-size:11px;color:var(--muted)}
+.wide{grid-column:1/-1}
+.check{display:flex;align-items:center;gap:10px;margin:10px 0;font-size:14px;min-height:36px}
+.check input{width:22px;height:22px;accent-color:var(--brand);flex:0 0 auto}
+
+/* 颜色选择器 */
+.color-row{display:flex;gap:8px;align-items:center}
+.color-row input[type=color]{width:54px;height:44px;padding:2px;border:1px solid var(--line);border-radius:12px;background:var(--bg);cursor:pointer}
+.color-row input[type=text]{flex:1}
+.swatches{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.swatch{width:30px;height:30px;border-radius:50%;border:2px solid var(--card);box-shadow:0 0 0 1px var(--line);cursor:pointer}
+.swatch:active{transform:scale(.9)}
+
+/* 滑块 */
+.range-row{display:flex;align-items:center;gap:10px}
+.range-row input[type=range]{flex:1;accent-color:var(--brand);height:24px}
+.range-val{min-width:34px;text-align:center;font-size:13px;color:var(--brand);font-weight:700}
+.preview-box{margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:12px;text-align:center;display:none}
+.preview-box img{max-width:100%;max-height:220px;border-radius:10px}
+
+/* 示例按钮 */
+.example-box{position:relative}
+.example-btn{position:absolute;right:8px;top:30px;font-size:11px;color:var(--brand);
+  background:var(--brand-soft);border:0;border-radius:8px;padding:4px 8px;cursor:pointer}
+
+/* 风格卡片网格 */
+.style-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px}
+.style-card{border:2px solid var(--line);border-radius:14px;padding:10px 6px;text-align:center;cursor:pointer;background:var(--bg)}
+.style-card.active{border-color:var(--brand);background:var(--brand-soft)}
+.style-card .em{font-size:24px;display:block}
+.style-card .nm{font-size:12px;font-weight:700;margin-top:4px}
+.style-card .ds{font-size:10px;color:var(--muted);margin-top:2px}
+
+.btn{border:0;border-radius:14px;padding:14px;width:100%;font-size:16px;font-weight:700;cursor:pointer;background:var(--brand);color:#fff}
+.btn:active{opacity:.85}
+.btn.secondary{background:var(--brand-soft);color:var(--brand)}
+.btn.ghost{background:var(--card);color:var(--brand);border:1px solid var(--line)}
+.btn.small{padding:8px 12px;font-size:12px;width:auto}
+.row{display:flex;gap:10px;margin-top:10px}.row .btn{flex:1}
+.picked{margin-top:8px;max-width:160px;border-radius:12px;display:none}
+#result{margin-top:14px}
+.msg{padding:12px;border-radius:12px;font-size:14px;white-space:pre-wrap;word-break:break-all}
+.msg.ok{background:rgba(27,127,75,.12);color:var(--ok)}
+.msg.err{background:rgba(179,38,30,.12);color:var(--err)}
+.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:10px}
+.imgs .item{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--card)}
+.imgs img{width:100%;display:block;aspect-ratio:3/4;object-fit:contain;background:var(--bg)}
+.imgs .cap{padding:6px;text-align:center;font-size:11px;color:var(--muted)}
+details{margin-top:10px;font-size:12px;color:var(--muted)}summary{cursor:pointer}
+pre{white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:10px;border-radius:10px;max-height:240px;overflow:auto}
+
+/* 底部导航 */
+.bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
+  background:var(--card);border-top:1px solid var(--line);
+  padding:6px 4px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -2px 12px rgba(0,0,0,.06)}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:6px 2px;color:var(--muted);cursor:pointer;border:0;background:none;font-size:10px}
+.nav-item .ic{font-size:20px;line-height:1}
+.nav-item.active{color:var(--brand);font-weight:700}
+
+/* 设置抽屉 */
+.sheet-mask{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;display:none}
+.sheet{position:absolute;left:0;right:0;bottom:0;max-height:82vh;overflow:auto;
+  background:var(--card);border-radius:24px 24px 0 0;padding:20px 18px calc(24px + env(safe-area-inset-bottom))}
+.sheet h2{margin:0 0 14px;font-size:18px;color:var(--brand)}
+.seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.seg button{flex:1;padding:10px;border:0;background:var(--bg);color:var(--muted);cursor:pointer;font-size:14px}
+.seg button.active{background:var(--brand);color:#fff}
 </style>
 </head>
 <body>
-<header>
-  <h1>📷 AI 照相馆 <button class="iconbtn" onclick="openSettings()">⚙ 设置</button></h1>
-  <p>证件照 · 换背景 · 精修 · 写真 · 修复 · 扩图 · 文生图 · 批量</p>
+<header class="appbar">
+  <div class="row">
+    <div class="brand"><span class="logo">📷</span><span>AI 照相馆</span></div>
+    <button class="icon-btn" onclick="openSettings()" aria-label="设置">⚙</button>
+  </div>
+  <div class="sub" id="appbarSub">证件照 · 换背景 · 精修 · 写真 · 修复 · 扩图 · 文生图 · 批量</div>
 </header>
-<div class="tabs" id="tabs"></div>
-<main id="main"></main>
-<div class="foot">图像由 Agnes AI 处理 · 设置仅保存在本机 · 结果保存到「下载/AIPhotoStudio」</div>
 
-<div id="settingsPanel">
-  <div class="card">
-    <h2>设置（API Key 只存本机）</h2>
+<main id="main"></main>
+<nav class="bottom-nav" id="bottomNav"></nav>
+
+<div class="sheet-mask" id="settingsSheet">
+  <div class="sheet">
+    <h2>⚙ 设置</h2>
+    <div class="seg" id="themeSeg">
+      <button data-theme="light">☀️ 浅色</button>
+      <button data-theme="dark">🌙 深色</button>
+      <button data-theme="system">📱 跟随系统</button>
+    </div>
     <div id="settingsForm"></div>
-    <div class="row"><button class="btn secondary" onclick="saveSettings()">保存</button>
+    <div class="row"><button class="btn secondary" onclick="saveSettings()">保存设置</button>
       <button class="btn ghost" onclick="testConnection()">测试连接</button></div>
     <div class="row"><button class="btn ghost" onclick="closeSettings()">关闭</button></div>
-    <div id="settingsMsg" style="margin-top:9px"></div>
+    <div id="settingsMsg" style="margin-top:10px"></div>
   </div>
 </div>
 

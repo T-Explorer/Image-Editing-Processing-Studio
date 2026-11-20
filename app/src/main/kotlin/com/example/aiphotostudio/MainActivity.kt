@@ -16,6 +16,7 @@ import android.webkit.WebViewClient
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
@@ -36,9 +37,37 @@ class MainActivity : AppCompatActivity() {
             else evalJs("window.onFolderPicked && window.onFolderPicked({ok:false,error:'已取消'})")
         }
 
+    fun systemTheme(): String {
+        val mask = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        return if (mask == android.content.res.Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
+    }
+
+    fun applyThemeMode(mode: String) {
+        val prefs = getSharedPreferences("ai_photo_studio", MODE_PRIVATE)
+        prefs.edit().putString("theme_mode", mode).apply()
+        val night = when (mode) {
+            "dark" -> AppCompatDelegate.MODE_NIGHT_YES
+            "light" -> AppCompatDelegate.MODE_NIGHT_NO
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
+        AppCompatDelegate.setDefaultNightMode(night)
+        updateStatusBar()
+    }
+
+    private fun updateStatusBar() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            val dark = AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_YES ||
+                (AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM && systemTheme() == "dark")
+            window.statusBarColor = if (dark) resources.getColor(R.color.surface_dark)
+                else resources.getColor(R.color.purple_700)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         cfg = Config(this)
+        val prefs = getSharedPreferences("ai_photo_studio", MODE_PRIVATE)
+        applyThemeMode(prefs.getString("theme_mode", "system") ?: "system")
 
         webView = WebView(this).apply {
             layoutParams = ViewGroup.LayoutParams(
