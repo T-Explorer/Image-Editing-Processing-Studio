@@ -1,12 +1,13 @@
 {
   "lint": {
+    "exclude": ["app/src/main/assets"],
+    "files": { "exclude": ["app/src/main/assets"] },
     "rules": {
-      "exclude": [
-        "no-var",
-        "no-window",
-        "no-inner-declarations",
-        "no-unused-vars"
-      ]
+      "exclude": ["no-var", "no-window", "no-inner-declarations", "no-unused-vars"]
     }
+  },
+  "test": {
+    "exclude": ["app/src/main/assets"],
+    "files": { "exclude": ["app/src/main/assets"] }
   }
 }

@@ -90,7 +90,7 @@ class AgnesClient(private val cfg: Config) {
                 }
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val body = stream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
+                val body = stream?.bufferedReader()?.use { reader -> reader.readText() } ?: ""
                 if (code !in 200..299) {
                     last = Exception(explain(code, body))
                     if (code in listOf(429, 500, 502, 503, 504) && i < attempts - 1) {
@@ -102,7 +102,8 @@ class AgnesClient(private val cfg: Config) {
                 return body
             } catch (e: Exception) {
                 if (e is java.net.SocketTimeoutException) {
-                    last = Exception("请求超时（${cfg.getInt("timeout", 240)} 秒）。可把超时调大或先用 1K 档位重试。")
+                    val seconds = cfg.getInt("timeout", 240)
+                    last = Exception("请求超时（${seconds} 秒）。可把超时调大或先用 1K 档位重试。")
                 } else if (e is java.net.UnknownHostException || e is java.io.IOException) {
                     last = Exception("网络请求失败：${e.message}。请检查网络与 Base URL。")
                 } else {

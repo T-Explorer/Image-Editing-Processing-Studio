@@ -248,7 +248,7 @@
     });
   }
 
-  function batchValues(op, v) {
+  function batchValues(v) {
     var map = { background: 'bg_', retouch: 'rt_', style: 'st_', restore: 'rs_' };
     var prefix = map[v.batch_op] || 'bg_';
     var out = { extra: v.extra || '', size: v.size || '2K', dry_run: false };
@@ -274,7 +274,7 @@
     var listed = native('listImages', folder);
     if (!listed.ok) { box.innerHTML = '<div class="msg err">' + esc(listed.error) + '</div>'; return; }
     var files = listed.files.slice(0, parseInt(v.limit) > 0 ? parseInt(v.limit) : listed.files.length);
-    var bv = batchValues(op, v);
+    var bv = batchValues(v);
     var done = 0, ok = 0;
     box.innerHTML = '<div class="msg">批量处理中：0 / ' + files.length + ' …</div>';
 

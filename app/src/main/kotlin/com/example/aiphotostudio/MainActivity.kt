@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.example.aiphotostudio
 
 import android.Manifest
@@ -54,9 +55,7 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             allowFileAccess = true
             allowContentAccess = true
-            @Suppress("DEPRECATION")
             allowFileAccessFromFileURLs = true
-            @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = true
             cacheMode = WebSettings.LOAD_NO_CACHE
             useWideViewPort = true
