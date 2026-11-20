@@ -6,6 +6,21 @@
   var state = {}, currentOp = OPS[0] || 'idphoto';
   var THEME_KEY = 'theme_mode';
 
+  // 全局错误捕获：任何脚本错误都直接显示在界面上，避免白屏无从排查
+  window.onerror = function (msg, src, line, col, err) {
+    try {
+      var m = document.getElementById('main');
+      if (m) m.innerHTML = '<div class="card" style="border-color:#B3261E"><h2 style="color:#B3261E">⚠️ 脚本错误</h2><pre style="white-space:pre-wrap">' +
+        String(msg) + ' @ line ' + line + ':' + col + '</pre></div>';
+    } catch (e) {}
+    return false;
+  };
+  // 兼容旧版 WebView：NodeList 可能没有 forEach
+  function qa(sel, fn) {
+    var nodes = document.querySelectorAll(sel);
+    for (var i = 0; i < nodes.length; i++) fn(nodes[i]);
+  }
+
   function native(method) {
     var args = Array.prototype.slice.call(arguments, 1);
     try {
@@ -39,9 +54,11 @@
       try{ window.Android && window.Android.getSystemTheme && (dark = window.Android.getSystemTheme()==='dark'); }catch(e){}
       if(!window.Android) dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
-    document.documentElement.setAttribute('data-theme', dark?'dark':'light');
-    var mt=document.querySelector('meta[name=theme-color]');
-    if(mt) mt.setAttribute('content', dark?'#1E1E27':'#6750A4');
+    try {
+      document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+      var mt=document.querySelector('meta[name=theme-color]');
+      if(mt) mt.setAttribute('content', dark?'#1E1E27':'#6750A4');
+    } catch (e) {}
   }
   function getStoredTheme(){
     try{ return localStorage.getItem(THEME_KEY)||'system'; }catch(e){ return 'system'; }
@@ -70,7 +87,8 @@
         card.appendChild(el('span',{class:'nm',text:o.label}));
         if(o.desc) card.appendChild(el('span',{class:'ds',text:o.desc}));
         card.onclick=function(){
-          grid.querySelectorAll('.style-card').forEach(function(c){c.classList.remove('active');});
+          var cards = grid.querySelectorAll('.style-card');
+          for (var ci = 0; ci < cards.length; ci++) cards[ci].classList.remove('active');
           card.classList.add('active');
           state[op][f.key]=o.label;
         };
@@ -195,7 +213,7 @@
 
   function collect(op){
     var values={};
-    document.querySelectorAll('#form-'+op+' [data-key]').forEach(function(node){
+    qa('#form-'+op+' [data-key]', function(node){
       var k=node.dataset.key,t=node.dataset.type;
       if(t==='bool_true'||t==='boolopt') values[k]=node.checked;
       else if(t==='range') values[k]=parseInt(node.value);
@@ -379,8 +397,8 @@
   // 其余功能放进"更多"：通过 appbar 副标题点击切换 / 这里增加第6项
   function switchTab(op){
     currentOp=op;
-    document.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('active',p.id==='form-'+op);});
-    document.querySelectorAll('.nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.op===op);});
+    qa('.panel', function(p){p.classList.toggle('active',p.id==='form-'+op);});
+    qa('.nav-item', function(n){n.classList.toggle('active',n.dataset.op===op);});
     window.scrollTo(0,0);
   }
 
@@ -403,7 +421,7 @@
       wrap.appendChild(input); form.appendChild(wrap);
     });
     var theme=getStoredTheme();
-    document.querySelectorAll('#themeSeg button').forEach(function(b){
+    qa('#themeSeg button', function(b){
       b.classList.toggle('active',b.dataset.theme===theme);
     });
   }
@@ -427,12 +445,12 @@
       (r.ok?'✅ ':'❌ ')+esc(r.message||r.error||'')+'</div>';
   }
   window.testConnection=testConnection;
-  document.querySelectorAll('#themeSeg button').forEach(function(b){
+  qa('#themeSeg button', function(b){
     b.onclick=function(){
       var m=b.dataset.theme;
       try{localStorage.setItem(THEME_KEY,m);}catch(e){}
       applyTheme(m);
-      document.querySelectorAll('#themeSeg button').forEach(function(x){x.classList.remove('active');});
+      qa('#themeSeg button', function(x){x.classList.remove('active');});
       b.classList.add('active');
       native('setTheme',m);
     };
@@ -464,6 +482,17 @@
     });
     sel.onchange=function(){ if(sel.value){switchTab(sel.value);sel.value='';} };
     document.querySelector('.appbar').appendChild(sel);
+    if (window.__bootCheck) { clearTimeout(window.__bootCheck); window.__bootCheck = null; }
+    var bm = document.getElementById('bootMsg');
+    if (bm && bm.parentNode) bm.parentNode.removeChild(bm);
   }
-  init();
+  try {
+    init();
+  } catch (e) {
+    try {
+      var mn = document.getElementById('main');
+      if (mn) mn.innerHTML = '<div class="card" style="border-color:#B3261E"><h2 style="color:#B3261E">⚠️ 初始化错误</h2><pre style="white-space:pre-wrap">' +
+        e.message + '\n' + (e.stack || '') + '</pre></div>';
+    } catch (e2) {}
+  }
 })();
