@@ -40,6 +40,14 @@ jobs:
           set -o pipefail
           gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
 
+      - name: Show compile errors
+        if: failure()
+        shell: bash
+        run: |
+          echo "========== KOTLIN / COMPILE ERRORS =========="
+          grep -n -E '^e:|error:|FAILURE:|What went wrong|Unresolved reference|Compilation error|Caused by:' build.log | head -60 || true
+          echo "=============================================="
+
       - name: Upload build log (for debugging)
         if: always()
         uses: actions/upload-artifact@v4
