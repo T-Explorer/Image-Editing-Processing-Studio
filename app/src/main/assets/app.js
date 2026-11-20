@@ -510,22 +510,27 @@
   });
 
   // ---------- 导航 ----------
+  var PANELS = {}; // 直接保存面板引用，避免使用 getElementById 取不到
+  function activatePanel(id){
+    var p = PANELS[id] || document.getElementById(id);
+    if (p && p.classList) p.classList.add('active');
+  }
   function switchGroup(key){
     if(key==='history'){openHistory();return;}
     if(key==='settings'){openSettings();return;}
-    qa('.nav-item',function(n){n.classList.toggle('active',n.dataset.group===key);});
-    qa('.panel',function(p){p.classList.remove('active');});
+    qa('.nav-item',function(n){if(n&&n.classList)n.classList.toggle('active',n.dataset.group===key);});
+    qa('.panel',function(p){if(p&&p.classList)p.classList.remove('active');});
     var subIds=(NAV_GROUPS.filter(function(g){return g.key===key;})[0]||{}).ops||[];
-    if(key==='edit'){document.getElementById('panel-edit').classList.add('active');switchSub(currentEdit);}
-    else if(key==='create'){document.getElementById('panel-create').classList.add('active');switchSub(currentCreate);}
-    else if(subIds.length){document.getElementById('panel-'+subIds[0]).classList.add('active');currentOp=subIds[0];}
+    if(key==='edit'){activatePanel('panel-edit');switchSub(currentEdit);}
+    else if(key==='create'){activatePanel('panel-create');switchSub(currentCreate);}
+    else if(subIds.length){activatePanel('panel-'+subIds[0]);currentOp=subIds[0];}
     window.scrollTo(0,0);
   }
   var currentEdit='background', currentCreate='generate';
   function switchSub(op){
     currentOp=op;
-    qa('.panel .subtab',function(t){t.classList.toggle('active',t.dataset.op===op);});
-    qa('.panel .subview',function(v){v.classList.toggle('active',v.id==='form-'+op);});
+    qa('.subtab',function(t){if(t&&t.classList)t.classList.toggle('active',t.dataset.op===op);});
+    qa('.subview',function(v){if(v&&v.classList)v.classList.toggle('active',v.id==='form-'+op);});
   }
 
   // ---------- 初始化 ----------
@@ -534,9 +539,11 @@
     var main=document.getElementById('main'), nav=document.getElementById('bottomNav');
     // 主面板
     var pMain=el('div',{class:'panel active',id:'panel-main'});
+    PANELS['panel-main']=pMain;
     pMain.appendChild(buildPanel('idphoto')); main.appendChild(pMain);
     // 修图面板（子标签）
     var pEdit=el('div',{class:'panel',id:'panel-edit'});
+    PANELS['panel-edit']=pEdit;
     var editTabs=el('div',{class:'subtabs'});
     NAV_GROUPS[1].ops.forEach(function(op,i){
       var t=el('div',{class:'subtab'+(i===0?' active':''),'data-op':op,text:SCHEMA.icons[op]+' '+SCHEMA.labels[op]});
@@ -550,6 +557,7 @@
     main.appendChild(pEdit);
     // 创作面板（子标签）
     var pCreate=el('div',{class:'panel',id:'panel-create'});
+    PANELS['panel-create']=pCreate;
     var ct=el('div',{class:'subtabs'});
     NAV_GROUPS[2].ops.forEach(function(op,i){
       var t=el('div',{class:'subtab'+(i===0?' active':''),'data-op':op,text:SCHEMA.icons[op]+' '+SCHEMA.labels[op]});
@@ -563,6 +571,7 @@
     main.appendChild(pCreate);
     // 批量面板：动态参数区放在 form-batch 内部，便于统一收集
     var pBatch=el('div',{class:'panel',id:'panel-batch'});
+    PANELS['panel-batch']=pBatch;
     var batchPanel=buildPanel('batch');
     var dyn=el('div',{id:'batchDynamic'});
     batchPanel.insertBefore(dyn, batchPanel.lastChild); // 插在 action 卡片之前
