@@ -154,20 +154,21 @@
       input.value=f.default!=null?f.default:'';
     }
     input.dataset.key=f.key; input.dataset.type=f.type;
-    wrap.appendChild(input);
+
+    if(f.type==='example' && f.example){
+      var eb=el('button',{class:'example-btn',text:'填入示例'});
+      eb.onclick=function(){ input.value=f.example; };
+      var box=el('div',{class:'example-box'},[input,eb]);
+      wrap.appendChild(box);
+    } else {
+      wrap.appendChild(input);
+    }
 
     if(f.type==='file'){
       var pv=el('img',{class:'picked',alt:'预览'}); pv.id='preview_'+op+'_'+f.key; wrap.appendChild(pv);
     }
     if(f.type==='dir'){
       wrap.appendChild(el('div',{class:'hint',id:'folder_'+op+'_'+f.key,text:'未选择文件夹'}));
-    }
-    if(f.type==='example' && f.example){
-      var eb=el('button',{class:'example-btn',text:'填入示例'});
-      eb.onclick=function(){ input.value=f.example; };
-      var box=el('div',{class:'example-box'},[input,eb]);
-      wrap.replaceChild(box, input);
-      input.dataset.key=f.key; input.dataset.type=f.type;
     }
     if(f.help && ['textarea','example','file','dir'].indexOf(f.type)<0){
       wrap.appendChild(el('div',{class:'hint',text:f.help}));
