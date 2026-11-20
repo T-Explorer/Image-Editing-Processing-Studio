@@ -102,6 +102,19 @@
     });
   }
 
+  /** 生成历史缩略图（小尺寸 data URI），节省存储。 */
+  function makeThumb(src, w, h){
+    w=w||180; h=h||240;
+    return loadImage(src).then(function(img){
+      var scale=Math.min(w/img.width,h/img.height);
+      var tw=Math.max(1,Math.round(img.width*scale)), th=Math.max(1,Math.round(img.height*scale));
+      var c=document.createElement('canvas'); c.width=tw; c.height=th;
+      var ctx=c.getContext('2d'); ctx.fillStyle='#FFFFFF'; ctx.fillRect(0,0,tw,th);
+      ctx.drawImage(img,0,0,tw,th);
+      return c.toDataURL('image/jpeg',0.6);
+    });
+  }
+
   global.ImgTools={ loadImage:loadImage, fitToCanvas:fitToCanvas,
-    makeSheet:makeSheet, previewRetouch:previewRetouch };
+    makeSheet:makeSheet, previewRetouch:previewRetouch, makeThumb:makeThumb };
 })(window);

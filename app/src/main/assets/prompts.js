@@ -272,6 +272,67 @@
   }
   function build(op, v){
     switch(op){
+      case 'upscale': {
+        var f=v.factor==='4倍'?'4倍':'2倍';
+        var det=parseInt(v.detail)||70;
+        var parts=['把这张图片高清放大 '+f+'，提升分辨率与清晰度',
+          '细节增强程度约 '+det+'%，保留并增强真实纹理，不要产生塑料感或过度锐化'];
+        if(v.face)parts.push('重点增强面部五官细节，眼睛、眉毛、嘴唇清晰自然');
+        parts.push('保持原图内容、构图、色彩和人物身份完全不变');
+        if((v.extra||'').trim())parts.push('补充要求：'+v.extra);
+        return {prompt:join(parts)};
+      }
+      case 'cutout': {
+        var bg=v.bg||'透明背景';
+        var bgtxt=bg==='自定义描述'?((v.custom||'').trim()||'纯白背景')
+          :(bg==='透明背景'?'纯白或透明背景，边缘干净':bg);
+        var parts=['把图片中的主体人物或物体精确抠出，背景替换为：'+bgtxt,
+          '保留主体的外貌、姿势、服装和细节完全不变'];
+        if(v.edge)parts.push('精细处理发丝与边缘，无白边、锯齿或抠图残影');
+        if(bg==='透明背景')parts.push('输出干净的主体，边缘平滑，便于后期抠图');
+        if((v.extra||'').trim())parts.push('补充要求：'+v.extra);
+        return {prompt:join(parts)};
+      }
+      case 'colorize': {
+        var st=parseInt(v.strength)||80;
+        var parts=['为这张黑白老照片自然上色',
+          '上色风格：'+(v.style||'自然真实'),
+          '上色强度约 '+st+'%，肤色、服装与环境颜色符合照片年代与现实常识，色彩柔和真实不夸张'];
+        if(v.face)parts.push('人物肤色自然真实，优先保证面部颜色准确');
+        parts.push('保持原图的构图、人物、表情和细节不变，不生成不存在的内容');
+        if((v.extra||'').trim())parts.push('补充要求：'+v.extra);
+        return {prompt:join(parts)};
+      }
+      case 'inpaint': {
+        var parts=['智能修复这张图片：'];
+        if((v.remove||'').trim())parts.push('去除以下区域的内容：'+v.remove);
+        if((v.keep||'').trim())parts.push('严格保留：'+v.keep);
+        parts.push('去除区域使用周围内容自然填充，光影、透视和色彩与原图无缝衔接，不留修补痕迹');
+        if((v.extra||'').trim())parts.push('补充要求：'+v.extra);
+        return {prompt:join(parts)};
+      }
+      case 'product': {
+        var parts=['把这张图片制作成专业电商商品图',
+          '背景风格：'+(v.bg||'纯白影棚'),
+          '布光方式：'+(v.light||'柔和商业布光')];
+        if(v.shadow)parts.push('添加自然的接触阴影，让商品有立体感不悬浮');
+        parts.push('商品主体保持原样，细节锐利，构图精致，适合电商平台展示');
+        if((v.extra||'').trim())parts.push('补充要求：'+v.extra);
+        return {prompt:join(parts)};
+      }
+      case 'avatar': {
+        var styles={'日系动漫':'日系动漫插画风格，干净线稿，赛璐璐上色，清透明亮',
+          '3D 卡通':'3D 卡通渲染风格，柔和材质，皮克斯质感，立体可爱',
+          '像素风':'复古像素游戏风格，16bit 像素画，方块化色彩',
+          '水墨国风':'中国水墨画风格，宣纸质感，墨色晕染，东方意境',
+          '手绘插画':'温柔手绘插画风格，柔和笔触，治愈色调',
+          '职场插画':'扁平化职场插画风格，简洁几何，商务配色'};
+        var parts=['把照片中的人物转换为以下头像风格：'+(styles[v.style]||v.style||'动漫风格')];
+        if(v.keep)parts.push('严格保持人物长相、五官特征和发型，转换后仍是同一个人');
+        parts.push('头部居中，构图适合作为社交头像，背景简洁，画面精致');
+        if((v.extra||'').trim())parts.push('补充要求：'+v.extra);
+        return {prompt:join(parts)};
+      }
       case 'idphoto': {
         var spec=resolveSpec(v), ts=v.type?specForType(v.type):null;
         if((!v.spec || v.spec==='一寸') && ts && ts!=='自定义尺寸'){
