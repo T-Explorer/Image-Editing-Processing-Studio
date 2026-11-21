@@ -29,7 +29,7 @@ class Bridge(
     companion object {
         const val VERSION = "3.0"
         private const val HISTORY_FILE = "history.json"
-        private const val MAX_HISTORY = 24
+        private const val MAX_HISTORY = 80
     }
 
     private val historyLock = Any()
@@ -442,7 +442,10 @@ class Bridge(
     }
 
     @JavascriptInterface
-    fun saveHistory(entry: String): String {
+    fun saveHistory(entry: String): String = appendHistory(entry)
+
+    @JavascriptInterface
+    fun appendHistory(entry: String): String {
         return try {
             synchronized(historyLock) {
                 val arr = readHistory()

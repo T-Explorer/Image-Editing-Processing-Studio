@@ -152,47 +152,61 @@
         return Math.sqrt(dr * dr + dg * dg + db * db);
       }
 
-      // 2. 从边缘泛洪，只去掉与边缘连通的背景
+      // 2. 从边缘泛洪，只去掉与边缘连通的背景；接近主体边缘时停止，避免吃掉发丝
       var visited = new Uint8Array(w * h);
       var stack = new Int32Array(w * h);
       var sp = 0;
-      function push(idx) {
+      function nearSubject(i, cx, cy) {
+        for (var ox = -3; ox <= 3; ox++) {
+          var nx = cx + ox;
+          if (nx < 0 || nx >= w) continue;
+          for (var oy = -3; oy <= 3; oy++) {
+            var ny = cy + oy;
+            if (ny < 0 || ny >= h) continue;
+            var j = (ny * w + nx) * 4;
+            if (data[j + 3] >= 200 && dist(j) > Math.max(tol, 110)) return true;
+          }
+        }
+        return false;
+      }
+      function push(idx, cx, cy) {
         if (visited[idx]) return;
         var i = idx * 4;
         if (data[i + 3] < 16 || dist(i) <= tol) {
-          visited[idx] = 1; stack[sp++] = idx;
+          if (!nearSubject(i, cx, cy)) {
+            visited[idx] = 1;
+            stack[sp++] = idx;
+          }
         }
       }
-      for (var bx = 0; bx < w; bx++) { push(bx); push((h - 1) * w + bx); }
-      for (var by = 0; by < h; by++) { push(by * w); push(by * w + w - 1); }
+      for (var bx = 0; bx < w; bx++) { push(bx, bx, 0); push((h - 1) * w + bx, bx, h - 1); }
+      for (var by = 0; by < h; by++) { push(by * w, 0, by); push(by * w + w - 1, w - 1, by); }
       while (sp > 0) {
         var idx = stack[--sp];
         var cx = idx % w, cy = (idx / w) | 0;
-        if (cx > 0) push(idx - 1);
-        if (cx < w - 1) push(idx + 1);
-        if (cy > 0) push(idx - w);
-        if (cy < h - 1) push(idx + w);
+        if (cx > 0) push(idx - 1, cx - 1, cy);
+        if (cx < w - 1) push(idx + 1, cx + 1, cy);
+        if (cy > 0) push(idx - w, cx, cy - 1);
+        if (cy < h - 1) push(idx + w, cx, cy + 1);
       }
       for (var i2 = 0; i2 < visited.length; i2++) {
         if (visited[i2]) data[i2 * 4 + 3] = 0;
       }
 
-      // 3. 边缘羽化：透明边缘相邻像素降低不透明度
+      // 3. 轻微羽化：只降低已透明边缘外侧 1px 的不透明度，不把头发主体削薄
       if (feather > 0) {
-        for (var pass = 0; pass < feather; pass++) {
-          var alphaCopy = new Uint8Array(w * h);
-          for (var a = 0; a < alphaCopy.length; a++) alphaCopy[a] = data[a * 4 + 3];
-          for (var yy = 0; yy < h; yy++) {
-            for (var xx = 0; xx < w; xx++) {
-              var id = yy * w + xx;
-              if (alphaCopy[id] === 0) continue;
-              var near = false;
-              if (xx > 0 && alphaCopy[id - 1] === 0) near = true;
-              else if (xx < w - 1 && alphaCopy[id + 1] === 0) near = true;
-              else if (yy > 0 && alphaCopy[id - w] === 0) near = true;
-              else if (yy < h - 1 && alphaCopy[id + w] === 0) near = true;
-              if (near) data[id * 4 + 3] = Math.min(data[id * 4 + 3], 150);
-            }
+        var alphaCopy = new Uint8Array(w * h);
+        for (var a = 0; a < alphaCopy.length; a++) alphaCopy[a] = data[a * 4 + 3];
+        for (var yy = 0; yy < h; yy++) {
+          for (var xx = 0; xx < w; xx++) {
+            var id = yy * w + xx;
+            if (alphaCopy[id] === 0) continue;
+            var near = false;
+            if (xx > 0 && alphaCopy[id - 1] === 0) near = true;
+            else if (xx < w - 1 && alphaCopy[id + 1] === 0) near = true;
+            else if (yy > 0 && alphaCopy[id - w] === 0) near = true;
+            else if (yy < h - 1 && alphaCopy[id + w] === 0) near = true;
+            if (near) data[id * 4 + 3] = Math.min(data[id * 4 + 3], 210);
           }
         }
       }

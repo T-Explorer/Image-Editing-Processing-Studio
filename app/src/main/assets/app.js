@@ -358,8 +358,12 @@
     var old = btn.textContent;
     btn.disabled = true; btn.textContent = '优化中…';
     enhanceText(text).then(function (out) {
-      input.value = out;
-      st(op)[f.key] = out;
+      var clean = String(out || '').replace(/```[a-zA-Z]*\s*/g, '').replace(/```/g, '')
+        .replace(/\s*\n\s*/g, '，').replace(/[，,。;；]{2,}/g, function (m) { return m.charAt(0); })
+        .replace(/^[\s，,。;；]+/,'').replace(/[\s，,。;；]+$/,'');
+      clean = clean || text;
+      input.value = clean;
+      st(op)[f.key] = clean;
       toast('AI 已优化为专业描述');
     }).catch(function (e) {
       toast('AI 优化失败：' + e.message, 'err');
@@ -382,7 +386,10 @@
     stage.appendChild(el('div', { class: 'rl-empty', id: 'retouchPreviewEmpty', text: '选择照片后，这里会实时显示精修效果' }));
     box.appendChild(stage);
     box.appendChild(el('div', { class: 'rl-bar' }, [
-      el('button', { class: 'btn ghost small', type: 'button', text: '查看原图', onclick: toggleRetouchOriginal }),
+      el('div', { class: 'rl-toggle' }, [
+        el('button', { class: 'btn ghost small', type: 'button', text: '原图', onclick: function () { st('retouch')._showOriginal = true; updateRetouchPreview(true); } }),
+        el('button', { class: 'btn ghost small', type: 'button', text: '效果', onclick: function () { st('retouch')._showOriginal = false; updateRetouchPreview(true); } })
+      ]),
       el('button', { class: 'btn ghost small', type: 'button', text: '重置参数', onclick: resetRetouch })
     ]));
     return box;
@@ -419,7 +426,7 @@
 
   function scheduleRetouchPreview() {
     if (retouchTimer) clearTimeout(retouchTimer);
-    retouchTimer = setTimeout(function () { updateRetouchPreview(false); }, 120);
+    retouchTimer = setTimeout(function () { updateRetouchPreview(false); }, 90);
   }
 
   function updateRetouchPreview(force) {
@@ -427,7 +434,7 @@
     var empty = document.getElementById('retouchPreviewEmpty');
     var sub = document.getElementById('retouchLiveSub');
     if (!img || !empty) return;
-    var r = st('retouch').image;
+    var r = st('retouch')[fileKey('retouch')] || st('retouch').image;
     if (!r || !r.dataUri) {
       img.style.display = 'none'; empty.style.display = 'block';
       if (sub) sub.textContent = '选择照片后，这里会实时显示精修效果';
@@ -476,7 +483,8 @@
       stopBtn.onclick = function () { batchStop = true; toast('正在停止，请等待当前图片处理完成'); };
       row.appendChild(runBtn); row.appendChild(stopBtn);
       card.appendChild(row);
-      card.appendChild(el('div', { class: 'hint', id: 'batchStatus_' + op, text: '选择文件夹后开始；结果会自动保存到相册。' }));
+      card.appendChild(el('div', { class: 'hint', id: 'batchStatus_' + op, text: '批量 = 选一个文件夹，把里面每张照片按当前参数自动处理，并保存到相册 Download/AIPhotoStudio。' }));
+      card.appendChild(el('div', { class: 'hint', text: '支持 11 种操作：证件照、换背景、精修、风格、老照片修复、放大、抠图、上色、消除、商品图、头像。' }));
     } else {
       var btn = el('button', { class: 'btn', type: 'button', text: '✨ 开始生成' });
       btn.id = 'runBtn_' + op;
@@ -823,7 +831,7 @@
       showResultError(op, new Error('请先选择一张图片。'));
       return;
     }
-    if (op === 'generate' && !(v.prompt || '').trim()) {
+    if (op === 'generate' && !(v.prompt || '').trim().replace(/```/g,'').trim()) {
       showResultError(op, new Error('请填写画面描述，或点击“AI 优化”让 AI 帮你写。'));
       return;
     }
@@ -858,7 +866,7 @@
           };
         });
       }).then(function (item) {
-        return finalize(op, [item], built.prompt);
+        return finalize(op, [item], built.prompt, '本地无损放大完成：不调用 AI，不改变像素内容，仅按所选倍数提升分辨率。');
       }).catch(function (e) {
         showResultError(op, e);
       }).then(function () {
@@ -904,9 +912,9 @@
     } else if (op === 'cutout') {
       var bgLabel = v.bg || '透明背景';
       if (built.transparent) {
-        chain = window.ImgTools.removeBackgroundToTransparent(src, { tolerance: 48, feather: 2, maxEdge: 2048 })
+        chain = window.ImgTools.removeBackgroundToTransparent(src, { tolerance: 56, feather: 1, maxEdge: 2048 })
           .then(function (url) {
-            return [{ url: url, name: '抠图_透明底.png', label: '透明背景 PNG' }];
+            return [{ url: url, name: '抠图_透明底.png', label: '透明背景 PNG（棋盘格表示透明）' }];
           });
       } else {
         var bgFill = bgLabel === '自定义颜色' ? (v.color || '#FFFFFF') :
@@ -1001,7 +1009,8 @@
     if (items && items.length) {
       html += '<div class="imgs">';
       items.forEach(function (it, i) {
-        html += '<div class="item" data-idx="' + i + '"><img src="' + it.url + '" alt="结果" onclick="openLightboxIndex(' + i + ')">' +
+        var cls = 'item' + (String(it.label || '').indexOf('透明') >= 0 ? ' transparent' : '');
+        html += '<div class="' + cls + '" data-idx="' + i + '"><img src="' + it.url + '" alt="结果" onclick="openResultIndex(' + i + ')">' +
           '<div class="cap">' + esc(it.label || '') + (it.path ? '<br>✅ 已保存' : '<br>尚未保存') + '</div>' +
           '<button class="btn ghost small" onclick="saveResult(' + i + ')">保存到相册</button></div>';
       });
@@ -1012,29 +1021,49 @@
     }
     var b = resultBox(op);
     if (b) b.innerHTML = html;
+    b._lastResults = items || [];
     _lastResults = items || [];
   }
 
   window.saveResult = function (i) {
     var it = (_lastResults || [])[i];
     if (!it) return;
+    if (it.path) {
+      toast('已保存到相册：' + it.path, 'ok');
+      markSavedResults();
+      return;
+    }
     var r = native('saveImage', it.url, it.name || ('AI相馆_' + Date.now() + '.png'));
     if (r.ok) {
       it.path = r.path;
-      toast('已保存：' + r.path);
+      markSavedResults();
+      toast('已保存：' + r.path, 'ok');
     } else {
       toast('保存失败：' + r.error, 'err');
     }
   };
   window.saveAllResults = function () {
     if (!_lastResults || !_lastResults.length) return;
-    saveItems(_lastResults).then(function (results) {
-      var saved = 0;
+    var todo = [];
+    var skipped = 0;
+    _lastResults.forEach(function (it, i) {
+      if (it.path) skipped++;
+      else todo.push({ item: it, index: i });
+    });
+    if (!todo.length) {
+      toast('这些图片已经在相册中：Download/AIPhotoStudio', 'ok');
+      return;
+    }
+    saveItems(todo.map(function (x) { return x.item; })).then(function (results) {
+      var saved = skipped;
       results.forEach(function (r, i) {
-        if (r.ok) { saved++; _lastResults[i].path = r.path; }
+        if (r.ok) {
+          saved++;
+          _lastResults[todo[i].index].path = r.path;
+        }
       });
       markSavedResults();
-      toast('已保存 ' + saved + ' 张到相册');
+      toast('已保存 ' + saved + ' 张到相册' + (skipped ? '（跳过已保存 ' + skipped + ' 张）' : ''));
     }).catch(function (e) { toast('保存失败：' + e.message, 'err'); });
   };
   function markSavedResults() {
@@ -1046,9 +1075,13 @@
   }
 
   // ---------- 大图预览 ----------
-  window.openLightboxIndex = function (i) {
-    openLightboxList(_lastResults, i, '生成结果');
+  window.openResultIndex = function (i) {
+    var activePanel = document.querySelector('.panel.active') || {};
+    var box = activePanel.id ? document.getElementById(activePanel.id) : null;
+    var results = box && box._lastResults ? box._lastResults : _lastResults;
+    openLightboxList(results, i, '生成结果');
   };
+  window.openLightboxIndex = window.openResultIndex;
   window.openLightboxUrl = function (url) {
     openLightboxList([{ url: url, name: 'AI相馆_' + Date.now() + '.png', label: '历史预览' }], 0, '历史预览');
   };
@@ -1063,7 +1096,9 @@
   function renderLightbox() {
     var it = _lbList[_lbIndex];
     if (!it) return;
-    document.getElementById('lightboxImg').src = it.url;
+    var imgEl = document.getElementById('lightboxImg');
+    imgEl.src = it.url;
+    imgEl.classList.toggle('transparent', String(it.label || '').indexOf('透明') >= 0);
     document.getElementById('lightboxCounter').textContent =
       _lbList.length > 1 ? (_lbIndex + 1) + ' / ' + _lbList.length : '';
     document.getElementById('lbPrev').style.display = _lbIndex > 0 ? 'block' : 'none';
@@ -1075,8 +1110,17 @@
   window.saveLightbox = function () {
     var it = _lbList[_lbIndex];
     if (!it) return;
+    if (it.path) {
+      toast('已保存到相册：' + it.path, 'ok');
+      return;
+    }
     var r = native('saveImage', it.url, it.name || ('AI相馆_' + Date.now() + '.png'));
-    toast(r.ok ? ('已保存：' + r.path) : ('保存失败：' + r.error), r.ok ? 'ok' : 'err');
+    if (r.ok) {
+      it.path = r.path;
+      toast('已保存：' + r.path, 'ok');
+    } else {
+      toast('保存失败：' + r.error, 'err');
+    }
   };
 
   // ---------- 历史 ----------
@@ -1105,7 +1149,7 @@
       });
     })).then(function (list) {
       entry.items = list;
-      var r = native('saveHistory', JSON.stringify(entry));
+      var r = native('appendHistory', JSON.stringify(entry));
       if (r && r.ok === false) throw new Error(r.error || '保存历史失败');
     }).catch(function (e) {
       // 历史失败不阻断主流程
@@ -1140,8 +1184,9 @@
       card.appendChild(head);
       var thumbs = el('div', { class: 'hc-thumbs' });
       var list = entry.items || [];
-      list.slice(0, 3).forEach(function (it, idx) {
+      list.forEach(function (it, idx) {
         var im = el('img', { src: it.thumb || it.preview, alt: '历史缩略图' });
+        if (String(it.label || '').indexOf('透明') >= 0) im.classList.add('transparent');
         im.onclick = function () {
           openLightboxList(list.map(function (x) {
             return { url: x.preview || x.thumb, name: x.name, label: x.label, path: x.path };
@@ -1149,7 +1194,6 @@
         };
         thumbs.appendChild(im);
       });
-      if (list.length > 3) thumbs.appendChild(el('div', { class: 'hc-more', text: '+' + (list.length - 3) }));
       card.appendChild(thumbs);
       if (entry.prompt) {
         card.appendChild(el('details', {}, [
@@ -1448,7 +1492,7 @@
     } else if (group === 'create') {
       title = SCHEMA.labels[op] || 'AI 创作';
       sub = '文生图 · 扩图 · 放大 · 抠图 · 上色 · 消除 · 商品图 · 头像';
-    } else if (group === 'batch') { title = '批量处理'; sub = '文件夹批量生成 · 自动保存 · 支持 11 种操作'; }
+    } else if (group === 'batch') { title = '批量处理'; sub = '选一个文件夹，把里面所有照片自动处理并保存，支持 11 种操作'; }
     var t = document.getElementById('appTitle');
     var s = document.getElementById('appSub');
     if (t) t.textContent = title;

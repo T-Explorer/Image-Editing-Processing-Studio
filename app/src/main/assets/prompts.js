@@ -168,12 +168,12 @@
   }
   function outfitText(v){
     var o = v.outfit || '保持原服装';
-    if (o === '保持原服装') return '';
-    if (o === '自动选择得体服装') return '服装调整为适合证件照的整洁正装';
+    if (o === '保持原服装') return '保持原照片中的服装、颜色和款式不变';
+    if (o === '自动选择得体服装') return '服装调整为适合证件照的整洁正装，替代原服装';
     if (o === '自定义服装描述…') return (v.outfit_custom||'').trim()
-      ? ('服装改为'+v.outfit_custom+'，着装整洁合身') : '';
+      ? ('服装必须改为：'+(v.outfit_custom||'').trim()+'，替换原服装，着装整洁合身') : '保持原服装';
     var desc = o.indexOf('｜')>=0 ? o.split('｜')[1] : o;
-    return '服装改为'+desc+'，着装整洁合身，时尚得体';
+    return '服装必须改为：'+desc+'，替换原服装，剪裁合身、整洁得体，不要保留原服装或出现其他款式';
   }
   function hairText(v){
     var arr = [];
@@ -208,6 +208,7 @@
     if (v.beauty) parts.push('整体自然美化：肤色干净均匀，精神饱满，保留真实质感');
     if (v.enhance) parts.push('画质清晰锐利，光线均匀柔和，影楼级专业证件照质感');
     if ((v.extra||'').trim()) parts.push('补充要求：'+cleanText(v.extra));
+    if (ot) parts.push('最终服装必须为：'+ot.replace(/^服装必须改为：/,''), '不要保留原服装');
     return join(parts);
   }
   function bgreplacePrompt(v){
@@ -251,24 +252,27 @@
   }
   function styleOutfitText(v){
     var o=v.outfit||'按风格自动搭配';
-    if(o==='保持原服装') return '保持原照片中的服装不变';
+    if(o==='保持原服装') return '服装保持原照片中的服装、颜色和款式不变，不要因为风格而更换服装';
     if(o==='自定义服装描述…'){
       var custom=(v.outfit_custom||'').trim();
-      return custom ? ('服装改为'+custom+'，与整体风格协调') : '服装与发型按该风格自动搭配，协调统一';
+      return custom ? ('服装必须改为：'+custom+'，替换原服装，并与整体风格协调') : '服装与发型按该风格自动搭配，协调统一';
     }
-    if(o==='按风格自动搭配'||o==='自动选择得体服装') return '服装与发型按该风格自动搭配，协调统一';
+    if(o==='按风格自动搭配'||o==='自动选择得体服装') return '服装与发型按该风格自动搭配，替换原服装，协调统一';
     var desc=o.indexOf('｜')>=0?o.split('｜')[1]:o;
-    return '服装改为'+desc+'，与整体风格协调统一';
+    return '服装必须改为：'+desc+'，替换原服装，并与整体风格协调；不要出现原服装或其他服装';
   }
   function stylePrompt(v){
     var desc=STYLE_PRESETS[v.preset]||((v.custom||'').trim()||v.preset||'自定义风格');
-    var parts=['把这张照片转换为以下风格：'+desc,'保持人物的长相、神态、姿势和构图不变，转换后仍是同一个人'];
+    var outfit=styleOutfitText(v);
+    var parts=['把这张照片转换为以下风格：'+desc,
+      '保持人物的长相、神态、姿势和构图不变，转换后仍是同一个人',
+      '服装要求优先于风格默认：'+outfit];
     var level=Math.max(0,Math.min(100,parseInt(v.strength)||0));
     if(level<=30)parts.push('风格强度较低：保留原照片的色调与质感，只轻微融入风格元素');
     else if(level<=60)parts.push('风格强度中等：明显融入风格特征，同时保留真实照片质感');
     else if(level<=85)parts.push('风格强度较高：整体呈现该风格的色调、光影与质感');
     else parts.push('风格强度很高：强烈的艺术化处理，画面以风格表达为主');
-    parts.push(styleOutfitText(v));
+    parts.push(outfit);
     parts.push('画面协调自然，细节精致，高质量');
     if((v.extra||'').trim())parts.push('补充要求：'+cleanText(v.extra));
     return join(parts);
@@ -411,14 +415,14 @@
         var bg=v.bg||'透明背景';
         var transparent=bg==='透明背景';
         var bgtxt;
-        if(transparent) bgtxt='纯白色（#FFFFFF）干净背景，主体边缘清晰';
+        if(transparent) bgtxt='纯白色（#FFFFFF）干净背景（这是中间步骤，稍后本地程序会把它变成透明）';
         else if(bg==='自定义描述') bgtxt=(v.custom||'').trim()||'纯白色干净背景';
         else if(bg==='自定义颜色') bgtxt='纯色背景（'+(v.color||'#FFFFFF')+'）';
         else bgtxt=bg;
         var parts=['把图片中的主体人物或物体精确抠出，背景替换为：'+bgtxt,
           '保留主体的外貌、姿势、服装和细节完全不变'];
-        if(v.edge)parts.push('精细处理发丝与边缘，无白边、锯齿或抠图残影');
-        if(transparent)parts.push('主体完整，背景为均匀纯净的白色，不要添加阴影或渐变，便于本地抠图');
+        if(v.edge)parts.push('精细保留发丝与衣物边缘，不要抠掉头发，不要产生白边、锯齿或抠图残影');
+        if(transparent)parts.push('主体边缘尽量远离画布边缘，背景为均匀纯净的白色，不要添加阴影或渐变，便于本地程序抠除白色背景并输出透明 PNG');
         if((v.extra||'').trim())parts.push('补充要求：'+cleanText(v.extra));
         return {prompt:join(parts), transparent:transparent,
           bgHex:bg==='自定义颜色'?(v.color||'#FFFFFF'):null};
@@ -434,11 +438,13 @@
         return {prompt:join(parts)};
       }
       case 'inpaint': {
-        var parts=['智能修复这张图片：'];
-        if((v.remove||'').trim())parts.push('去除以下区域的内容：'+v.remove);
-        if((v.keep||'').trim())parts.push('严格保留：'+v.keep);
+        var parts=['智能局部修复这张图片：只修改指定区域，其余部分保持原图不变'];
+        if((v.remove||'').trim())parts.push('必须去除：'+cleanText(v.remove));
+        if((v.keep||'').trim())parts.push('严格保留：'+cleanText(v.keep));
         parts.push('去除区域使用周围内容自然填充，光影、透视和色彩与原图无缝衔接，不留修补痕迹');
+        parts.push('不要更换整张图的背景、构图、服装、人物身份或整体色调');
         if((v.extra||'').trim())parts.push('补充要求：'+cleanText(v.extra));
+        if((v.remove||'').trim())parts.push('再次确认：必须去除'+cleanText(v.remove)+'，其他区域保持不变');
         return {prompt:join(parts)};
       }
       case 'product': {
@@ -479,6 +485,16 @@
         return {prompt:idPrompt(spec,v), spec:spec};
       }
       case 'background': return {prompt:bgreplacePrompt(v)};
+      case 'inpaint': {
+        var parts=['智能局部修复这张图片：只修改指定区域，其余部分保持原图不变'];
+        if((v.remove||'').trim())parts.push('必须去除：'+cleanText(v.remove));
+        if((v.keep||'').trim())parts.push('严格保留：'+cleanText(v.keep));
+        parts.push('去除区域使用周围内容自然填充，光影、透视和色彩与原图无缝衔接，不留修补痕迹');
+        parts.push('不要更换整张图的背景、构图、服装、人物身份或整体色调');
+        if((v.extra||'').trim())parts.push('补充要求：'+cleanText(v.extra));
+        if((v.remove||'').trim())parts.push('再次确认：必须去除'+cleanText(v.remove)+'，其他区域保持不变');
+        return {prompt:join(parts)};
+      }
       case 'retouch': return {prompt:retouchPrompt(v)};
       case 'style': return {prompt:stylePrompt(v)};
       case 'restore': return {prompt:restorePrompt(v)};
