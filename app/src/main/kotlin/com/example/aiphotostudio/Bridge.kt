@@ -6,6 +6,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.MediaStore
@@ -16,6 +17,7 @@ import androidx.activity.result.ActivityResultLauncher
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 /** WebView 与原生之间的桥。JS 侧通过 window.Android 调用。 */
 class Bridge(
@@ -25,10 +27,12 @@ class Bridge(
     private val folderLauncher: ActivityResultLauncher<Uri?>,
 ) {
     companion object {
-        const val VERSION = "2.1"
-        private const val HISTORY_KEY = "history_json"
-        private const val MAX_HISTORY = 60
+        const val VERSION = "3.0"
+        private const val HISTORY_FILE = "history.json"
+        private const val MAX_HISTORY = 24
     }
+
+    private val historyLock = Any()
 
     // ---------- JS 回调工具 ----------
     private fun jsStr(s: String): String {
@@ -43,13 +47,20 @@ class Bridge(
         activity.evalJs("window.__apiResult && window.__apiResult(" +
             jsStr(id) + "," + json + ")")
     }
+    private fun evalCallback(name: String, id: String, json: String) {
+        activity.evalJs("window." + name + " && window." + name + "(" + jsStr(id) + "," + json + ")")
+    }
+    private fun enhanceProgress(id: String, text: String, pct: Int) {
+        activity.evalJs("window.__enhanceProgress && window.__enhanceProgress(" +
+            jsStr(id) + "," + jsStr(text) + "," + pct + ")")
+    }
 
     // ---------- 配置 ----------
     @JavascriptInterface
     fun getConfig(): String = cfg.visibleConfig().toString()
 
     @JavascriptInterface
-    fun getAppVersion(): String = VERSION
+    fun getAppVersion(): String = obj { put("ok", true); put("version", VERSION) }
 
     @JavascriptInterface
     fun saveConfig(json: String): String {
@@ -65,6 +76,18 @@ class Bridge(
             val message: String = AgnesClient(cfg).test()
             obj { put("ok", true); put("message", message) }
         } catch (e: Exception) { errorJson(e) }
+    }
+
+    @JavascriptInterface
+    fun testConnectionAsync(callbackId: String) {
+        Thread {
+            try {
+                val message: String = AgnesClient(cfg).test()
+                evalCallback("__testResult", callbackId, obj { put("ok", true); put("message", message) })
+            } catch (e: Exception) {
+                evalCallback("__testResult", callbackId, errorJson(e))
+            }
+        }.start()
     }
 
     // ---------- 主题 ----------
@@ -151,6 +174,19 @@ class Bridge(
         } catch (e: Exception) { errorJson(e) }
     }
 
+    @JavascriptInterface
+    fun enhancePromptAsync(prompt: String, callbackId: String) {
+        Thread {
+            try {
+                enhanceProgress(callbackId, "AI 正在优化描述…", 35)
+                val result: String = AgnesClient(cfg).enhancePrompt(prompt)
+                evalCallback("__enhanceResult", callbackId, obj { put("ok", true); put("result", result) })
+            } catch (e: Exception) {
+                evalCallback("__enhanceResult", callbackId, errorJson(e))
+            }
+        }.start()
+    }
+
     // ---------- 选图 / 选文件夹 ----------
     @JavascriptInterface
     fun pickImage(): String {
@@ -183,23 +219,89 @@ class Bridge(
         } catch (e: Exception) { errorJson(e) }
     }
 
+    /** 读取原图（本地无损放大专用）：最多 4096 长边，不做上传体积压缩。 */
     @JavascriptInterface
-    fun listImages(folderUri: String): String {
+    fun readImageFull(uriString: String): String {
         return try {
-            val tree = Uri.parse(folderUri)
-            val rootId: String = DocumentsContract.getTreeDocumentId(tree)
-            val childrenUri: Uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, rootId)
-            val items = JSONArray()
-            walkTree(activity.contentResolver, tree, childrenUri, arrayOf(
-                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_MIME_TYPE), items, 0)
-            obj { put("ok", true); put("files", items) }
+            val uri = Uri.parse(uriString)
+            val pair = decodeUri(uri, maxEdgeOverride = 4096, uploadLimit = false)
+            obj {
+                put("ok", true); put("uri", uriString); put("dataUri", pair.first)
+                put("width", pair.second.first); put("height", pair.second.second)
+                put("name", displayName(uri) ?: "image")
+            }
         } catch (e: Exception) { errorJson(e) }
     }
 
+    /** 异步读取图片，避免大图解码阻塞 WebView。full=1 时读取原图。 */
+    @JavascriptInterface
+    fun readImageAsync(uriString: String, full: String, callbackId: String) {
+        Thread {
+            try {
+                val uri = Uri.parse(uriString)
+                val isFull = full == "1"
+                val pair = if (isFull) decodeUri(uri, maxEdgeOverride = 4096, uploadLimit = false)
+                else decodeUri(uri)
+                evalCallback("__readImageResult", callbackId, obj {
+                    put("ok", true); put("uri", uriString); put("dataUri", pair.first)
+                    put("width", pair.second.first); put("height", pair.second.second)
+                    put("name", displayName(uri) ?: "image")
+                })
+            } catch (e: Exception) {
+                evalCallback("__readImageResult", callbackId, errorJson(e))
+            }
+        }.start()
+    }
+
+    @JavascriptInterface
+    fun imageInfo(uriString: String): String {
+        return try {
+            val uri = Uri.parse(uriString)
+            val bounds = BitmapFactory.Options()
+            bounds.inJustDecodeBounds = true
+            activity.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw Exception("无法读取图片尺寸")
+            obj { put("ok", true); put("width", bounds.outWidth); put("height", bounds.outHeight) }
+        } catch (e: Exception) { errorJson(e) }
+    }
+
+    @JavascriptInterface
+    fun listImages(folderUri: String): String {
+        return try {
+            obj { put("ok", true); put("files", listImagesInternal(folderUri, true)) }
+        } catch (e: Exception) { errorJson(e) }
+    }
+
+    @JavascriptInterface
+    fun listImagesAsync(folderUri: String, recursive: String, callbackId: String) {
+        Thread {
+            try {
+                val items = listImagesInternal(folderUri, recursive == "1")
+                evalCallback("__listResult", callbackId, obj { put("ok", true); put("files", items) })
+            } catch (e: Exception) {
+                evalCallback("__listResult", callbackId, errorJson(e))
+            }
+        }.start()
+    }
+
+    private fun listImagesInternal(folderUri: String, recursive: Boolean): JSONArray {
+        val tree = Uri.parse(folderUri)
+        val rootId: String = DocumentsContract.getTreeDocumentId(tree)
+        val childrenUri: Uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, rootId)
+        val items = mutableListOf<JSONObject>()
+        walkTree(activity.contentResolver, tree, childrenUri, arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE), items, 0, recursive)
+        items.sortBy { it.optString("name").lowercase() }
+        val arr = JSONArray()
+        for (item in items) arr.put(item)
+        return arr
+    }
+
     private fun walkTree(resolver: ContentResolver, tree: Uri, parent: Uri,
-                         projection: Array<String>, items: JSONArray, depth: Int) {
+                         projection: Array<String>, items: MutableList<JSONObject>,
+                         depth: Int, recursive: Boolean) {
         if (depth > 8) return
         val cursor = resolver.query(parent, projection, null, null, null) ?: return
         try {
@@ -208,73 +310,176 @@ class Bridge(
                 val id: String = cursor.getString(0) ?: continue
                 val name: String = cursor.getString(1) ?: "image"
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    walkTree(resolver, tree, DocumentsContract.buildChildDocumentsUriUsingTree(tree, id), projection, items, depth + 1)
+                    if (recursive) {
+                        walkTree(resolver, tree, DocumentsContract.buildChildDocumentsUriUsingTree(tree, id),
+                            projection, items, depth + 1, true)
+                    }
                 } else if (mime.startsWith("image/")) {
                     val item = JSONObject()
                     item.put("uri", DocumentsContract.buildDocumentUriUsingTree(tree, id).toString())
                     item.put("name", name)
-                    items.put(item)
+                    items.add(item)
                 }
             }
         } finally { cursor.close() }
     }
 
+    // ---------- 保存图片 ----------
     @JavascriptInterface
     fun saveImage(dataUrl: String, filename: String): String {
         return try {
-            val comma = dataUrl.indexOf(',')
-            val raw: String = if (comma >= 0) dataUrl.substring(comma + 1) else dataUrl
-            val bytes = Base64.decode(raw, Base64.DEFAULT)
-            var name: String = filename.replace(Regex("[^A-Za-z0-9._\\-]"), "_")
-            if (!name.endsWith(".png") && !name.endsWith(".jpg") && !name.endsWith(".jpeg")) name += ".png"
-            val values = android.content.ContentValues()
-            values.put(MediaStore.Downloads.DISPLAY_NAME, name)
-            values.put(MediaStore.Downloads.MIME_TYPE, "image/png")
-            values.put(MediaStore.Downloads.RELATIVE_PATH, "Download/AIPhotoStudio")
-            values.put(MediaStore.Downloads.IS_PENDING, 1)
-            val resolver = activity.contentResolver
-            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: throw Exception("无法创建文件")
-            val out = resolver.openOutputStream(uri)
-            if (out != null) { out.write(bytes); out.close() }
-            values.clear()
-            values.put(MediaStore.Downloads.IS_PENDING, 0)
-            resolver.update(uri, values, null, null)
-            obj { put("ok", true); put("path", "Download/AIPhotoStudio/" + name) }
+            val path = saveImageInternal(dataUrl, filename)
+            obj { put("ok", true); put("path", path) }
         } catch (e: Exception) { errorJson(e) }
     }
 
-    // ---------- 历史记录 ----------
+    @JavascriptInterface
+    fun saveImagesAsync(json: String, callbackId: String) {
+        Thread {
+            try {
+                val arr = JSONArray(json)
+                val results = JSONArray()
+                var i = 0
+                while (i < arr.length()) {
+                    val item = arr.optJSONObject(i)
+                    val dataUrl = item?.optString("dataUrl", "") ?: ""
+                    val name = item?.optString("name", "image.png") ?: "image.png"
+                    try {
+                        val path = saveImageInternal(dataUrl, name)
+                        results.put(obj { put("ok", true); put("path", path) })
+                    } catch (e: Exception) {
+                        results.put(obj { put("ok", false); put("error", e.message ?: "保存失败") })
+                    }
+                    i++
+                }
+                evalCallback("__saveImagesResult", callbackId, obj { put("ok", true); put("results", results) })
+            } catch (e: Exception) {
+                evalCallback("__saveImagesResult", callbackId, errorJson(e))
+            }
+        }.start()
+    }
+
+    private fun saveImageInternal(dataUrl: String, filename: String): String {
+        val comma = dataUrl.indexOf(',')
+        val raw: String = if (comma >= 0) dataUrl.substring(comma + 1) else dataUrl
+        val bytes = Base64.decode(raw, Base64.DEFAULT)
+        val mime = when {
+            dataUrl.startsWith("data:image/jpeg") || dataUrl.startsWith("data:image/jpg") -> "image/jpeg"
+            dataUrl.startsWith("data:image/webp") -> "image/webp"
+            else -> "image/png"
+        }
+        val ext = when (mime) {
+            "image/jpeg" -> ".jpg"
+            "image/webp" -> ".webp"
+            else -> ".png"
+        }
+        var base: String = filename.replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_").trim()
+        if (base.isEmpty()) base = "AI相馆_" + System.currentTimeMillis()
+        val dot = base.lastIndexOf('.')
+        if (dot > 0) base = base.substring(0, dot)
+        if (base.isEmpty()) base = "AI相馆_" + System.currentTimeMillis()
+        val finalName = base + ext
+
+        val values = android.content.ContentValues()
+        values.put(MediaStore.Downloads.DISPLAY_NAME, finalName)
+        values.put(MediaStore.Downloads.MIME_TYPE, mime)
+        values.put(MediaStore.Downloads.RELATIVE_PATH, "Download/AIPhotoStudio")
+        values.put(MediaStore.Downloads.IS_PENDING, 1)
+        val resolver = activity.contentResolver
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw Exception("无法创建文件")
+        try {
+            val out = resolver.openOutputStream(uri) ?: throw Exception("无法写入文件")
+            out.use { it.write(bytes) }
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        } catch (e: Exception) {
+            try { resolver.delete(uri, null, null) } catch (ignore: Exception) {}
+            throw e
+        }
+        return "Download/AIPhotoStudio/" + finalName
+    }
+
+    @JavascriptInterface
+    fun existsImage(filename: String): String {
+        return try {
+            val projection = arrayOf(MediaStore.Downloads._ID)
+            val selection = MediaStore.Downloads.DISPLAY_NAME + "=? AND " +
+                MediaStore.Downloads.RELATIVE_PATH + " LIKE ?"
+            val args = arrayOf(filename, "%AIPhotoStudio%")
+            val cursor = activity.contentResolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI, projection, selection, args, null)
+            val exists = cursor?.use { it.count > 0 } ?: false
+            obj { put("ok", true); put("exists", exists) }
+        } catch (e: Exception) { errorJson(e) }
+    }
+
+    // ---------- 历史记录（文件存储，支持多条与删除） ----------
+    private val historyFile: File get() = File(activity.filesDir, HISTORY_FILE)
+
     private fun readHistory(): JSONArray {
-        val prefs = activity.getSharedPreferences("ai_photo_studio", android.content.Context.MODE_PRIVATE)
-        val raw: String = prefs.getString(HISTORY_KEY, "[]") ?: "[]"
-        return try { JSONArray(raw) } catch (e: Exception) { JSONArray() }
+        return try {
+            if (historyFile.exists()) JSONArray(historyFile.readText()) else JSONArray()
+        } catch (e: Exception) { JSONArray() }
     }
     private fun writeHistory(arr: JSONArray) {
-        val prefs = activity.getSharedPreferences("ai_photo_studio", android.content.Context.MODE_PRIVATE)
-        prefs.edit().putString(HISTORY_KEY, arr.toString()).apply()
+        val tmp = File(activity.filesDir, HISTORY_FILE + ".tmp")
+        tmp.writeText(arr.toString())
+        if (!tmp.renameTo(historyFile)) {
+            historyFile.writeText(arr.toString())
+            tmp.delete()
+        }
     }
 
     @JavascriptInterface
     fun getHistory(): String {
-        return try { obj { put("ok", true); put("items", readHistory()) } }
-        catch (e: Exception) { errorJson(e) }
+        return try {
+            synchronized(historyLock) {
+                obj { put("ok", true); put("items", readHistory()) }
+            }
+        } catch (e: Exception) { errorJson(e) }
     }
 
     @JavascriptInterface
     fun saveHistory(entry: String): String {
         return try {
-            val arr = readHistory()
-            arr.put(0, JSONObject(entry))
-            while (arr.length() > MAX_HISTORY) arr.remove(arr.length() - 1)
-            writeHistory(arr)
+            synchronized(historyLock) {
+                val arr = readHistory()
+                val obj = JSONObject(entry)
+                if (!obj.has("id")) obj.put("id", "h_" + System.currentTimeMillis())
+                arr.put(0, obj)
+                while (arr.length() > MAX_HISTORY) arr.remove(arr.length() - 1)
+                writeHistory(arr)
+            }
+            obj { put("ok", true) }
+        } catch (e: Exception) { errorJson(e) }
+    }
+
+    @JavascriptInterface
+    fun deleteHistory(id: String): String {
+        return try {
+            synchronized(historyLock) {
+                val arr = readHistory()
+                val out = JSONArray()
+                var i = 0
+                while (i < arr.length()) {
+                    val item = arr.optJSONObject(i)
+                    if (item != null && item.optString("id") != id) out.put(item)
+                    i++
+                }
+                writeHistory(out)
+            }
             obj { put("ok", true) }
         } catch (e: Exception) { errorJson(e) }
     }
 
     @JavascriptInterface
     fun clearHistory(): String {
-        return try { writeHistory(JSONArray()); obj { put("ok", true) } }
-        catch (e: Exception) { errorJson(e) }
+        return try {
+            synchronized(historyLock) { writeHistory(JSONArray()) }
+            obj { put("ok", true) }
+        } catch (e: Exception) { errorJson(e) }
     }
 
     fun onImagePicked(uri: Uri) {
@@ -285,7 +490,7 @@ class Bridge(
                 put("width", pair.second.first); put("height", pair.second.second)
                 put("name", displayName(uri) ?: "image")
             }
-            activity.evalJs("window.onImagePicked && window.onImagePicked(" + o.toString() + ")")
+            activity.evalJs("window.onImagePicked && window.onImagePicked(" + o + ")")
         } catch (e: Exception) {
             activity.evalJs("window.onImagePicked && window.onImagePicked(" + errorJson(e) + ")")
         }
@@ -296,28 +501,30 @@ class Bridge(
             activity.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (e: Exception) {}
         val o = obj { put("ok", true); put("uri", uri.toString()) }
-        activity.evalJs("window.onFolderPicked && window.onFolderPicked(" + o.toString() + ")")
+        activity.evalJs("window.onFolderPicked && window.onFolderPicked(" + o + ")")
     }
 
     // ---------- 图像处理 ----------
-    private fun decodeUri(uri: Uri): Pair<String, Pair<Int, Int>> {
+    private fun decodeUri(
+        uri: Uri,
+        maxEdgeOverride: Int? = null,
+        uploadLimit: Boolean = true,
+    ): Pair<String, Pair<Int, Int>> {
         val cr = activity.contentResolver
         val bounds = BitmapFactory.Options()
         bounds.inJustDecodeBounds = true
-        val firstInput = cr.openInputStream(uri)
-        if (firstInput != null) {
-            BitmapFactory.decodeStream(firstInput, null, bounds); firstInput.close()
-        }
+        cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         val ow = bounds.outWidth; val oh = bounds.outHeight
         if (ow <= 0 || oh <= 0) throw Exception("无法读取图片尺寸")
-        val maxEdge: Int = cfg.getInt("max_long_edge", 2560).coerceIn(512, 8192)
+        val maxEdge: Int = (maxEdgeOverride
+            ?: cfg.getInt("max_long_edge", 2560)).coerceIn(512, 8192)
         var sample = 1
         while (Math.max(ow, oh) / sample > maxEdge * 2) sample *= 2
         val opts = BitmapFactory.Options()
         opts.inSampleSize = sample; opts.inPreferredConfig = Bitmap.Config.ARGB_8888
-        val input = cr.openInputStream(uri) ?: throw Exception("无法打开图片")
-        var bitmap: Bitmap = BitmapFactory.decodeStream(input, null, opts) ?: throw Exception("无法解码图片")
-        input.close()
+        var bitmap: Bitmap = cr.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, opts)
+        } ?: throw Exception("无法解码图片")
         bitmap = fixRotation(cr, uri, bitmap)
         if (Math.max(bitmap.width, bitmap.height) > maxEdge) {
             val scale = maxEdge.toFloat() / Math.max(bitmap.width, bitmap.height).toFloat()
@@ -325,10 +532,11 @@ class Bridge(
             val h = Math.max(1, (bitmap.height.toFloat() * scale).toInt())
             bitmap = Bitmap.createScaledBitmap(bitmap, w, h, true)
         }
-        val hasAlpha = bitmap.config == Bitmap.Config.ARGB_8888
+        val hasAlpha = hasTransparency(bitmap)
         val out = ByteArrayOutputStream()
         var quality = 92
-        val limit: Int = cfg.getInt("max_upload_mb", 12).coerceIn(1, 100) * 1024 * 1024
+        val limit: Int = if (uploadLimit)
+            cfg.getInt("max_upload_mb", 12).coerceIn(1, 100) * 1024 * 1024 else Int.MAX_VALUE
         while (true) {
             out.reset()
             if (hasAlpha) bitmap.compress(Bitmap.CompressFormat.PNG, quality, out)
@@ -336,18 +544,68 @@ class Bridge(
             if (out.size() <= limit || quality <= 40) break
             quality -= 12
         }
+        // 透明 PNG 压缩率有限：仍超限时继续缩小尺寸，保证能上传。
+        if (uploadLimit && out.size() > limit) {
+            var scaled = bitmap
+            while (out.size() > limit && Math.max(scaled.width, scaled.height) > 640) {
+                val w = Math.max(1, scaled.width * 3 / 4)
+                val h = Math.max(1, scaled.height * 3 / 4)
+                scaled = Bitmap.createScaledBitmap(scaled, w, h, true)
+                out.reset()
+                if (hasAlpha) scaled.compress(Bitmap.CompressFormat.PNG, 92, out)
+                else scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            }
+            bitmap = scaled
+        }
         val mime: String = if (hasAlpha) "image/png" else "image/jpeg"
         val data: String = "data:" + mime + ";base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-        return Pair(data, Pair(ow, oh))
+        return Pair(data, Pair(bitmap.width, bitmap.height))
+    }
+
+    /** 采样检查是否真的存在半透明/透明像素；ARGB_8888 的 hasAlpha() 恒为 true，不能直接用。 */
+    private fun hasTransparency(bitmap: Bitmap): Boolean {
+        if (!bitmap.hasAlpha()) return false
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= 0 || height <= 0) return false
+        val row = IntArray(width)
+        val xStep = Math.max(1, width / 700)
+        val yStep = Math.max(1, height / 700)
+        var y = 0
+        while (y < height) {
+            bitmap.getPixels(row, 0, width, 0, y, width, 1)
+            var x = 0
+            while (x < width) {
+                if ((row[x] ushr 24) < 250) return true
+                x += xStep
+            }
+            y += yStep
+        }
+        return false
     }
 
     private fun fixRotation(cr: ContentResolver, uri: Uri, bitmap: Bitmap): Bitmap {
         return try {
-            val cursor = cr.query(uri, arrayOf(MediaStore.Images.Media.ORIENTATION), null, null, null) ?: return bitmap
-            var degree = 0
-            try { if (cursor.moveToFirst()) degree = cursor.getInt(0) } finally { cursor.close() }
-            if (degree == 0 || degree == 360) return bitmap
-            val matrix = Matrix(); matrix.postRotate(degree.toFloat())
+            val input = cr.openInputStream(uri) ?: return bitmap
+            val exif = ExifInterface(input)
+            val orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            input.close()
+            val matrix = Matrix()
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                ExifInterface.ORIENTATION_TRANSPOSE -> {
+                    matrix.postRotate(90f); matrix.postScale(-1f, 1f)
+                }
+                ExifInterface.ORIENTATION_TRANSVERSE -> {
+                    matrix.postRotate(270f); matrix.postScale(-1f, 1f)
+                }
+                else -> return bitmap
+            }
             Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
         } catch (e: Exception) { bitmap }
     }

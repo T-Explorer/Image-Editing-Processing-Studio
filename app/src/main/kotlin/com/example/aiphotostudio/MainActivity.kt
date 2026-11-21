@@ -2,7 +2,10 @@
 package com.example.aiphotostudio
 
 import android.Manifest
+import android.app.AlertDialog
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -10,20 +13,23 @@ import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.JsResult
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.EditText
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var bridge: Bridge
     private lateinit var cfg: Config
+    private var themeMode: String = "system"
 
     private val pickLauncher: ActivityResultLauncher<Array<String>> =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -38,42 +44,55 @@ class MainActivity : AppCompatActivity() {
         }
 
     fun systemTheme(): String {
-        val mask = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-        return if (mask == android.content.res.Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
+        val mask = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        return if (mask == Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
     }
 
-    fun applyThemeMode(mode: String) {
-        val prefs = getSharedPreferences("ai_photo_studio", MODE_PRIVATE)
-        prefs.edit().putString("theme_mode", mode).apply()
-        val night = when (mode) {
-            "dark" -> AppCompatDelegate.MODE_NIGHT_YES
-            "light" -> AppCompatDelegate.MODE_NIGHT_NO
-            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+    private fun isDarkTheme(): Boolean {
+        return when (themeMode) {
+            "dark" -> true
+            "light" -> false
+            else -> systemTheme() == "dark"
         }
-        AppCompatDelegate.setDefaultNightMode(night)
+    }
+
+    /** 只更新网页与状态栏，不重建 Activity，避免丢失当前页面和输入内容。 */
+    fun applyThemeMode(mode: String) {
+        themeMode = mode
+        getSharedPreferences("ai_photo_studio", MODE_PRIVATE)
+            .edit().putString("theme_mode", mode).apply()
+        if (::webView.isInitialized) {
+            webView.setBackgroundColor(if (isDarkTheme()) Color.parseColor("#0E0E13")
+                else Color.parseColor("#F5F4F9"))
+        }
         updateStatusBar()
     }
 
     private fun updateStatusBar() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            val dark = AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_YES ||
-                (AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM && systemTheme() == "dark")
-            window.statusBarColor = if (dark) resources.getColor(R.color.surface_dark)
-                else resources.getColor(R.color.purple_700)
-        }
+        val dark = isDarkTheme()
+        window.statusBarColor = if (dark) resources.getColor(R.color.surface_dark)
+            else resources.getColor(R.color.purple_700)
+        window.navigationBarColor = if (dark) resources.getColor(R.color.surface_dark)
+            else resources.getColor(R.color.surface_light)
+        // 状态栏始终是深色底（紫色或深灰），因此使用浅色图标。
+        WindowCompat.getInsetsController(window, window.decorView)
+            .isAppearanceLightStatusBars = false
+        WindowCompat.getInsetsController(window, window.decorView)
+            .isAppearanceLightNavigationBars = !dark
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         cfg = Config(this)
         val prefs = getSharedPreferences("ai_photo_studio", MODE_PRIVATE)
-        applyThemeMode(prefs.getString("theme_mode", "system") ?: "system")
+        themeMode = prefs.getString("theme_mode", "system") ?: "system"
 
         webView = WebView(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             )
-            setBackgroundColor(Color.parseColor("#F7F7FB"))
+            setBackgroundColor(if (isDarkTheme()) Color.parseColor("#0E0E13")
+                else Color.parseColor("#F5F4F9"))
         }
         setContentView(webView)
 
@@ -86,15 +105,31 @@ class MainActivity : AppCompatActivity() {
             allowContentAccess = true
             allowFileAccessFromFileURLs = true
             allowUniversalAccessFromFileURLs = true
-            cacheMode = WebSettings.LOAD_NO_CACHE
             useWideViewPort = true
             loadWithOverviewMode = false
+            textZoom = 100
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
         }
         webView.addJavascriptInterface(bridge, "Android")
-        webView.webViewClient = WebViewClient()
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val url = request?.url?.toString() ?: return false
+                if (url.startsWith("file:///android_asset/")) return false
+                return try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    true
+                } catch (e: Exception) { true }
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                evalJs("window.refreshTheme && window.refreshTheme()")
+            }
+        }
         webView.webChromeClient = object : WebChromeClient() {
             override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
-                android.app.AlertDialog.Builder(this@MainActivity)
+                AlertDialog.Builder(this@MainActivity)
                     .setTitle("AI 照相馆")
                     .setMessage(message)
                     .setPositiveButton(android.R.string.ok) { _, _ -> result?.confirm() }
@@ -102,10 +137,49 @@ class MainActivity : AppCompatActivity() {
                     .show()
                 return true
             }
+
+            override fun onJsConfirm(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("AI 照相馆")
+                    .setMessage(message)
+                    .setPositiveButton(android.R.string.ok) { _, _ -> result?.confirm() }
+                    .setNegativeButton(android.R.string.cancel) { _, _ -> result?.cancel() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
+
+            override fun onJsPrompt(
+                view: WebView?, url: String?, message: String?, defaultValue: String?, result: JsResult?
+            ): Boolean {
+                val input = EditText(this@MainActivity).apply {
+                    setText(defaultValue ?: "")
+                    setSingleLine(true)
+                    setPadding(32, 16, 32, 16)
+                }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("AI 照相馆")
+                    .setMessage(message)
+                    .setView(input)
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        result?.confirm(input.text.toString())
+                    }
+                    .setNegativeButton(android.R.string.cancel) { _, _ -> result?.cancel() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
         }
 
+        applyThemeMode(themeMode)
         requestStoragePermissionIfNeeded()
         webView.loadUrl("file:///android_asset/index.html")
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateStatusBar()
+        evalJs("window.refreshTheme && window.refreshTheme()")
     }
 
     private fun requestStoragePermissionIfNeeded() {
@@ -120,6 +194,7 @@ class MainActivity : AppCompatActivity() {
 
     /** 从任意线程安全地执行 JS。 */
     fun evalJs(script: String) {
+        if (!::webView.isInitialized) return
         webView.post {
             try {
                 webView.evaluateJavascript(script, null)
@@ -129,9 +204,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack()
-        else super.onBackPressed()
+        if (!::webView.isInitialized) {
+            super.onBackPressed()
+            return
+        }
+        webView.evaluateJavascript("(window.handleBack && window.handleBack()) ? 1 : 0") { value ->
+            if (value == "1") return@evaluateJavascript
+            if (webView.canGoBack()) webView.goBack() else finish()
+        }
+    }
+
+    override fun onDestroy() {
+        if (::webView.isInitialized) {
+            webView.removeJavascriptInterface("Android")
+            webView.destroy()
+        }
+        super.onDestroy()
     }
 }

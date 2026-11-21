@@ -32,12 +32,14 @@ class Config(private val ctx: Context) {
         obj.put("max_upload_mb", getInt("max_upload_mb", 12))
         obj.put("max_long_edge", getInt("max_long_edge", 2560))
         obj.put("size", get("size", "2K"))
+        obj.put("auto_save", get("auto_save", "true"))
+        obj.put("text_model", get("text_model", "agnes-3.0-flash"))
         return obj
     }
 
     fun update(json: JSONObject) {
         val keys = arrayOf("api_key", "base_url", "model", "timeout",
-            "max_upload_mb", "max_long_edge", "size")
+            "max_upload_mb", "max_long_edge", "size", "auto_save", "text_model")
         val editor = prefs.edit()
         for (k in keys) {
             val value: String = json.optString(k, "")
@@ -177,13 +179,22 @@ class AgnesClient(private val cfg: Config) {
         }
         val url: String = if (item != null) item.optString("url", "") else ""
         if (url.trim().isNotEmpty()) {
-            val input = URL(url).openStream()
-            val bytes = input.readBytes()
-            input.close()
-            val result = JSONObject()
-            result.put("kind", "b64")
-            result.put("data", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
-            return result
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 30000
+            conn.readTimeout = timeoutMs()
+            conn.instanceFollowRedirects = true
+            try {
+                val code = conn.responseCode
+                if (code !in 200..299) throw Exception("下载生成图片失败：HTTP " + code)
+                val bytes = conn.inputStream.use { it.readBytes() }
+                if (bytes.isEmpty()) throw Exception("下载生成图片失败：内容为空")
+                val result = JSONObject()
+                result.put("kind", "b64")
+                result.put("data", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+                return result
+            } finally {
+                conn.disconnect()
+            }
         }
         throw Exception("接口没有返回图像数据：" + resp.toString().take(300))
     }
@@ -224,11 +235,12 @@ class AgnesClient(private val cfg: Config) {
     fun enhancePrompt(prompt: String): String {
         val p = prompt.trim()
         if (p.isEmpty()) throw Exception("请先填写画面描述。")
-        val instruction = "你是专业的 AI 绘画提示词优化师。请把下面的中文描述优化成一段更具体、" +
-            "更有画面感、适合图像生成模型的提示词，包含主体、场景、风格、光线、构图与质量要求，" +
-            "用中文输出，不要解释，只输出提示词本身。\n\n原始描述：" + p
+        val instruction = "你是专业的 AI 图像提示词优化师。请把下面的中文描述改写成一段" +
+            "具体、专业、可直接用于图像生成的中文提示词，包含主体、场景、光线、构图、风格与画质要求。" +
+            "保留原描述的核心意图，不要添加与原意冲突的内容；不要解释，不要使用 Markdown，只输出提示词本身。\n\n" +
+            "原始描述：" + p
         val payload = JSONObject()
-        payload.put("model", "agnes-3.0-flash")
+        payload.put("model", cfg.get("text_model", "agnes-3.0-flash"))
         val messages = org.json.JSONArray()
         val m = JSONObject()
         m.put("role", "user")
@@ -245,11 +257,23 @@ class AgnesClient(private val cfg: Config) {
                 val msg = c.optJSONObject("message")
                 if (msg != null) {
                     val content: String = msg.optString("content", "")
-                    if (content.trim().isNotEmpty()) return content.trim()
+                    val cleaned = cleanEnhanced(content)
+                    if (cleaned.isNotEmpty()) return cleaned
                 }
             }
         }
         throw Exception("优化失败，未返回有效内容。")
+    }
+
+    /** 清理文本模型输出中的 Markdown 围栏、前缀与多余引号。 */
+    private fun cleanEnhanced(raw: String): String {
+        var text = raw.trim()
+        text = text.replace(Regex("^```[a-zA-Z]*\\s*"), "").replace(Regex("\\s*```$"), "")
+        text = text.replace(Regex("^(优化后的?提示词|提示词|专业提示词)\\s*[：:]\\s*"), "")
+        text = text.replace(Regex("^[\"“”'‘’]+|[\"“”'‘’]+$"), "")
+        text = text.replace(Regex("[ \\t]+"), " ")
+        text = text.replace(Regex("\\n{3,}"), "\n\n")
+        return text.trim()
     }
 
     private fun explain(code: Int, body: String): String {
