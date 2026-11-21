@@ -17,7 +17,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.EditText
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -149,26 +148,6 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
 
-            override fun onJsPrompt(
-                view: WebView?, url: String?, message: String?, defaultValue: String?, result: JsResult?
-            ): Boolean {
-                val input = EditText(this@MainActivity).apply {
-                    setText(defaultValue ?: "")
-                    setSingleLine(true)
-                    setPadding(32, 16, 32, 16)
-                }
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("AI 照相馆")
-                    .setMessage(message)
-                    .setView(input)
-                    .setPositiveButton(android.R.string.ok) { _, _ ->
-                        result?.confirm(input.text.toString())
-                    }
-                    .setNegativeButton(android.R.string.cancel) { _, _ -> result?.cancel() }
-                    .setOnCancelListener { result?.cancel() }
-                    .show()
-                return true
-            }
         }
 
         applyThemeMode(themeMode)
